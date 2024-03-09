@@ -18,4 +18,5 @@ serde = "1.0.197"
 ssmarshal = "1.0.0"
 usb-gadget = { git = "https://github.com/surban/usb-gadget.git", rev = "897c511" }
 usbd-hid-macros = "0.6.0"
-winit = { version = "0.29.14", features = ["rwh_05", "ahash", "bytemuck", "memmap2", "percent-encoding", "rwh_06", "sctk", "sctk-adwaita", "wayland", "wayland-backend", "wayland-client", "wayland-csd-adwaita", "wayland-protocols", "wayland-protocols-plasma"], default-features = false }
+winit = { version = "0.29.14", features = ["rwh_05"] }
+gud-gadget = { git = "https://github.com/samcday/gud-gadget.git" }

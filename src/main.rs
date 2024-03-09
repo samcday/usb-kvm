@@ -4,6 +4,8 @@
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
+use std::thread::sleep;
+use std::time::Duration;
 use error_iter::ErrorIter as _;
 use log::error;
 use pixels::{Error, Pixels, SurfaceTexture};
@@ -12,9 +14,10 @@ use usb_gadget::{Class, Config, default_udc, Gadget, Id, remove_all, Strings};
 use usb_gadget::function::hid::Hid;
 use usbd_hid_macros::gen_hid_descriptor;
 use winit::dpi::LogicalSize;
-use winit::event::{ElementState, Event, KeyEvent, WindowEvent};
+use winit::event::{ElementState, Event, KeyEvent, StartCause, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::keyboard::{Key, KeyCode, NamedKey, PhysicalKey};
+use winit::raw_window_handle::HasDisplayHandle;
 use winit::window::WindowBuilder;
 
 const WIDTH: u32 = 320;
@@ -139,6 +142,10 @@ fn main() {
         .with_config(Config::new("kbmouse").with_function(kbhandle).with_function(mousehandle))
         .bind(&udc)
         .expect("gadget binding failed");
+
+    // TODO: something more robust than this.
+    // Would probably be better to `mknod` the device files in a temp dir under app control.
+    sleep(Duration::from_millis(100));
 
     let (kb_major, kb_minor) = kbhid.device().unwrap();
     let mut kb = File::options().append(true).open(PathBuf::from(format!("/dev/char/{}:{}", kb_major, kb_minor))).expect("failed to open kb dev");
@@ -265,160 +272,15 @@ impl World {
     }
 }
 
-// https://usb.org/sites/default/files/hut1_3_0.pdf page 88
 fn keyboard_usage(key_event: KeyEvent) -> Option<u8> {
-    if let PhysicalKey::Code(key_code) = key_event.physical_key {
-        match key_code {
-            KeyCode::KeyA => Some(0x04),
-            KeyCode::KeyB => Some(0x05),
-            KeyCode::KeyC => Some(0x06),
-            KeyCode::KeyD => Some(0x07),
-            KeyCode::KeyE => Some(0x08),
-            KeyCode::KeyF => Some(0x09),
-            KeyCode::KeyG => Some(0x0A),
-            KeyCode::KeyH => Some(0x0B),
-            KeyCode::KeyI => Some(0x0C),
-            KeyCode::KeyJ => Some(0x0D),
-            KeyCode::KeyK => Some(0x0E),
-            KeyCode::KeyL => Some(0x0F),
-            KeyCode::KeyM => Some(0x10),
-            KeyCode::KeyN => Some(0x11),
-            KeyCode::KeyO => Some(0x12),
-            KeyCode::KeyP => Some(0x13),
-            KeyCode::KeyQ => Some(0x14),
-            KeyCode::KeyR => Some(0x15),
-            KeyCode::KeyS => Some(0x16),
-            KeyCode::KeyT => Some(0x17),
-            KeyCode::KeyU => Some(0x18),
-            KeyCode::KeyV => Some(0x19),
-            KeyCode::KeyW => Some(0x1A),
-            KeyCode::KeyX => Some(0x1B),
-            KeyCode::KeyY => Some(0x1C),
-            KeyCode::KeyZ => Some(0x1D),
-            KeyCode::Digit1 => Some(0x1E),
-            KeyCode::Digit2 => Some(0x1F),
-            KeyCode::Digit3 => Some(0x20),
-            KeyCode::Digit4 => Some(0x21),
-            KeyCode::Digit5 => Some(0x22),
-            KeyCode::Digit6 => Some(0x23),
-            KeyCode::Digit7 => Some(0x24),
-            KeyCode::Digit8 => Some(0x25),
-            KeyCode::Digit9 => Some(0x26),
-            KeyCode::Digit0 => Some(0x27),
-            KeyCode::Enter => Some(0x28),
-            KeyCode::Escape => Some(0x29),
-            KeyCode::Backspace => Some(0x2A),
-            KeyCode::Tab => Some(0x2B),
-            KeyCode::Space => Some(0x2C),
-            KeyCode::Minus => Some(0x2D),
-            KeyCode::Equal => Some(0x2E),
-            KeyCode::BracketLeft => Some(0x2F),
-            KeyCode::BracketRight => Some(0x30),
-            KeyCode::Backslash => Some(0x31),
-            // KeyCode:: => Some(0x32),
-            KeyCode::Semicolon => Some(0x33),
-            KeyCode::Quote => Some(0x34),
-            KeyCode::Backquote => Some(0x35),
-            KeyCode::Comma => Some(0x36),
-            KeyCode::Period => Some(0x37),
-            KeyCode::Slash => Some(0x38),
-            KeyCode::CapsLock => Some(0x39),
-            KeyCode::F1 => Some(0x3A),
-            KeyCode::F2 => Some(0x3B),
-            KeyCode::F3 => Some(0x3C),
-            KeyCode::F4 => Some(0x3D),
-            KeyCode::F5 => Some(0x3E),
-            KeyCode::F6 => Some(0x3F),
-            KeyCode::F7 => Some(0x40),
-            KeyCode::F8 => Some(0x41),
-            KeyCode::F9 => Some(0x42),
-            KeyCode::F10 => Some(0x43),
-            KeyCode::F11 => Some(0x44),
-            KeyCode::F12 => Some(0x45),
-            KeyCode::PrintScreen => Some(0x46),
-            KeyCode::ScrollLock => Some(0x47),
-            KeyCode::Pause => Some(0x48),
-            KeyCode::Insert => Some(0x49),
-            KeyCode::Home => Some(0x4A),
-            KeyCode::PageUp => Some(0x4B),
-            KeyCode::Delete => Some(0x4C),
-            KeyCode::End => Some(0x4D),
-            KeyCode::PageDown => Some(0x4E),
-            KeyCode::ArrowRight => Some(0x4F),
-            KeyCode::ArrowLeft => Some(0x50),
-            KeyCode::ArrowDown => Some(0x51),
-            KeyCode::ArrowUp => Some(0x52),
-            KeyCode::NumLock => Some(0x53),
-            KeyCode::NumpadDivide => Some(0x54),
-            KeyCode::NumpadMultiply => Some(0x55),
-            KeyCode::NumpadSubtract => Some(0x56),
-            KeyCode::NumpadAdd => Some(0x57),
-            KeyCode::NumpadEnter => Some(0x58),
-            KeyCode::Numpad1 => Some(0x59),
-            KeyCode::Numpad2 => Some(0x5A),
-            KeyCode::Numpad3 => Some(0x5B),
-            KeyCode::Numpad4 => Some(0x5C),
-            KeyCode::Numpad5 => Some(0x5D),
-            KeyCode::Numpad6 => Some(0x5E),
-            KeyCode::Numpad7 => Some(0x5F),
-            KeyCode::Numpad8 => Some(0x60),
-            KeyCode::Numpad9 => Some(0x61),
-            KeyCode::Numpad0 => Some(0x62),
-            KeyCode::NumpadDecimal => Some(0x63),
-            // KeyCode::Numpad => Some(0x64),
-            // KeyCode::Numpad => Some(0x65),
-            KeyCode::Power => Some(0x66),
-            KeyCode::NumpadEqual => Some(0x67),
-            KeyCode::F13 => Some(0x68),
-            KeyCode::F14 => Some(0x69),
-            KeyCode::F15 => Some(0x6A),
-            KeyCode::F16 => Some(0x6B),
-            KeyCode::F17 => Some(0x6C),
-            KeyCode::F18 => Some(0x6D),
-            KeyCode::F19 => Some(0x6E),
-            KeyCode::F20 => Some(0x6F),
-            KeyCode::F21 => Some(0x70),
-            KeyCode::F22 => Some(0x71),
-            KeyCode::F23 => Some(0x72),
-            KeyCode::F24 => Some(0x73),
-            // KeyCode:: => Some(0x74),
-            KeyCode::Help => Some(0x75),
-            KeyCode::ContextMenu => Some(0x76),
-            KeyCode::Select => Some(0x77),
-            KeyCode::MediaStop => Some(0x78),
-            KeyCode::Again => Some(0x79),
-            KeyCode::Undo => Some(0x7A),
-            KeyCode::Cut => Some(0x7B),
-            KeyCode::Copy => Some(0x7C),
-            KeyCode::Paste => Some(0x7D),
-            KeyCode::Find => Some(0x7E),
-            KeyCode::AudioVolumeMute => Some(0x7F),
-            KeyCode::AudioVolumeUp => Some(0x80),
-            KeyCode::AudioVolumeDown => Some(0x81),
-            // KeyCode:: => Some(0x82),
-            // KeyCode:: => Some(0x83),
-            // KeyCode:: => Some(0x84),
-            KeyCode::NumpadComma => Some(0x85),
-            // KeyCode:: => Some(0x86),
-            // KeyCode:: => Some(0x87),
-            // KeyCode:: => Some(0x88),
-            // KeyCode:: => Some(0x89),
-            // KeyCode:: => Some(0x8A),
-            // KeyCode:: => Some(0x8B),
-            // KeyCode:: => Some(0x8C),
-            // KeyCode:: => Some(0x8D),
-            // KeyCode:: => Some(0x8E),
-            // KeyCode:: => Some(0x8F),
-            // KeyCode:: => Some(0x9),
-            _ => None,
-        }
-    } else {
-        None
-    }
-}
-
-/*
-fn keyboard_usage(key_event: KeyEvent) -> Option<u8> {
+    // Map logical keys to USB keyboard usage codes
+    // https://usb.org/sites/default/files/hut1_3_0.pdf page 88
+    // I originally implemented this using the scancodes since I thought that might make more sense
+    // for folks with non-US keyboard layouts.
+    // ... Turns out squeekboard scancodes are interpreted completely nonsensically. No idea where
+    // the issue lies (winit? Wayland? Some other crate somewhere?). But I figure if someone presses
+    // "w" on their OSK they didn't mean the "End" key, which is what was being reported...
+    // The implication here is the keyboard layout on the host machine will need to be US.
     match key_event.logical_key {
         Key::Character(str) => {
             str.to_lowercase().chars().next().map(|char| {
@@ -457,4 +319,3 @@ fn keyboard_usage(key_event: KeyEvent) -> Option<u8> {
         _ => { None }
     }
 }
-*/
