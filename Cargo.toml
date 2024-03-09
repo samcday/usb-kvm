@@ -1,7 +1,7 @@
 [package]
-name = "minimal-winit"
+name = "usb-kvm"
 version = "0.1.0"
-authors = ["Jay Oster <jay@kodewerx.org>"]
+authors = ["Sam Day <me@samcday.com>"]
 edition = "2021"
 publish = false
 
@@ -14,5 +14,8 @@ env_logger = "0.10"
 error-iter = "0.4"
 log = "0.4"
 pixels = "0.13.0"
-winit = "0.28"
-winit_input_helper = "0.14"
+serde = "1.0.197"
+ssmarshal = "1.0.0"
+usb-gadget = { git = "https://github.com/surban/usb-gadget.git", rev = "897c511" }
+usbd-hid-macros = "0.6.0"
+winit = { version = "0.29.14", features = ["rwh_05", "ahash", "bytemuck", "memmap2", "percent-encoding", "rwh_06", "sctk", "sctk-adwaita", "wayland", "wayland-backend", "wayland-client", "wayland-csd-adwaita", "wayland-protocols", "wayland-protocols-plasma"], default-features = false }
