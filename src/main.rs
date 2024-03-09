@@ -16,7 +16,7 @@ use usb_gadget::{Class, Config, default_udc, Gadget, Id, remove_all, Strings};
 use usb_gadget::function::hid::Hid;
 use usbd_hid_macros::gen_hid_descriptor;
 use winit::dpi::LogicalSize;
-use winit::event::{ElementState, Event, KeyEvent, StartCause, WindowEvent};
+use winit::event::{ElementState, Event, KeyEvent, StartCause, TouchPhase, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::keyboard::{Key, KeyCode, NamedKey, PhysicalKey};
 use winit::raw_window_handle::HasDisplayHandle;
@@ -150,6 +150,7 @@ fn main() {
     let (mouse_major, mouse_minor) = mousehid.device().unwrap();
     let mut mouse = File::options().append(true).open(PathBuf::from(format!("/dev/char/{}:{}", mouse_major, mouse_minor))).expect("failed to open mouse dev");
 
+    let mut mousebuf: [u8; 5] = [0; 5];
     let mut kbbuf: [u8; 8] = [0; 8];
     let mut kbreport = KeyboardReport{
         modifier: 0,
@@ -186,7 +187,6 @@ fn main() {
                         }]).expect("failed to send modes");
                     },
                     gud_gadget::Event::Buffer(info) => {
-                        println!("yee");
                         gud_data.recv_buffer(info, pixels.lock().unwrap().frame_mut(), (WIDTH * 4) as usize).expect("recv_buffer failed");
                     }
                 }
@@ -194,9 +194,12 @@ fn main() {
         }
     });
 
+    let mut active_touch = None;
+
     event_loop.run(move |event, elwt| {
         match event {
             Event::AboutToWait => {
+                // TODO: nuke once user events are setup and GUD thread can notify on new frame
                 window.request_redraw();
             }
             Event::WindowEvent { event: window_event, .. } => {
@@ -236,8 +239,6 @@ fn main() {
                                     break;
                                 }
                             }
-                        } else {
-                            println!("unhandled: {:?}", key_event);
                         }
                         if kbchanged {
                             ssmarshal::serialize(&mut kbbuf, &kbreport).expect("report serialization");
@@ -245,7 +246,36 @@ fn main() {
                         }
                     }
                     WindowEvent::Touch(touch) => {
-                        println!("touch event: {:?}", touch);
+                        match touch.phase {
+                            TouchPhase::Started => {
+                                if active_touch.is_none() {
+                                    active_touch = Some((touch.id, touch.location));
+                                }
+                            }
+                            TouchPhase::Cancelled | TouchPhase::Ended => {
+                                if let Some((id, _)) = active_touch {
+                                    if id == touch.id {
+                                        active_touch = None;
+                                    }
+                                }
+                            }
+                            TouchPhase::Moved => {
+                                if let Some((id, old_pos)) = active_touch {
+                                    if id == touch.id {
+                                        let mousereport = MouseReport{
+                                            x: (touch.location.x - old_pos.x) as i8,
+                                            y: (touch.location.y - old_pos.y) as i8,
+                                            buttons: 0,
+                                            pan: 0,
+                                            wheel: 0,
+                                        };
+                                        ssmarshal::serialize(&mut mousebuf, &mousereport).expect("report serialization");
+                                        mouse.write_all(&mousebuf).expect("mouse report write failed");
+                                        active_touch = Some((id, touch.location));
+                                    }
+                                }
+                            }
+                        }
                     }
                     _ => {}
                 }
