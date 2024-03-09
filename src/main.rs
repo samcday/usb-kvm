@@ -4,6 +4,8 @@
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::sleep;
 use std::time::Duration;
 use error_iter::ErrorIter as _;
@@ -20,17 +22,8 @@ use winit::keyboard::{Key, KeyCode, NamedKey, PhysicalKey};
 use winit::raw_window_handle::HasDisplayHandle;
 use winit::window::WindowBuilder;
 
-const WIDTH: u32 = 320;
-const HEIGHT: u32 = 240;
-const BOX_SIZE: i16 = 64;
-
-/// Representation of the application state. In this example, a box will bounce around the screen.
-struct World {
-    box_x: i16,
-    box_y: i16,
-    velocity_x: i16,
-    velocity_y: i16,
-}
+const WIDTH: u32 = 768;
+const HEIGHT: u32 = 1024;
 
 pub trait SerializedDescriptor {
     fn desc() -> &'static [u8];
@@ -119,7 +112,6 @@ fn main() {
         let surface_texture = SurfaceTexture::new(window_size.width, window_size.height, &window);
         Pixels::new(WIDTH, HEIGHT, surface_texture).unwrap()
     };
-    let mut world = World::new();
 
     event_loop.set_control_flow(ControlFlow::Wait);
 
@@ -138,8 +130,14 @@ fn main() {
     builder.report_desc = MouseReport::desc().to_vec();
     let (mousehid, mousehandle) = builder.build();
 
-    let _reg = Gadget::new(Class::new(0, 0, 0), Id::new(666, 666), Strings::new("Test", "FakeKeeb", "666"))
-        .with_config(Config::new("kbmouse").with_function(kbhandle).with_function(mousehandle))
+    let (mut gud, mut gud_data, gud_handle) = gud_gadget::Function::new();
+
+    let _reg = Gadget::new(Class::new(0, 0, 0), Id::new(0x1d50, 0x614d), Strings::new("usb-kvm", "usb-kvm", "666"))
+        .with_config(Config::new("usb-kvm")
+            .with_function(kbhandle)
+            .with_function(mousehandle)
+            .with_function(gud_handle)
+        )
         .bind(&udc)
         .expect("gadget binding failed");
 
@@ -160,35 +158,71 @@ fn main() {
         keycodes: [0, 0, 0, 0, 0, 0],
     };
 
+    let running = Arc::new(AtomicBool::new(true));
+    let pixels = Arc::new(Mutex::new(pixels));
+
+    let running2 = running.clone();
+    let pixels2 = pixels.clone();
+
+    std::thread::spawn(move || {
+        while running.load(Ordering::Relaxed) {
+            if let Ok(Some(event)) = gud.event(Duration::from_millis(100)) {
+                match event {
+                    gud_gadget::Event::GetDescriptorRequest(req) => {
+                        req.send_descriptor(WIDTH, HEIGHT, WIDTH, HEIGHT).expect("failed to send descriptor");
+                    },
+                    gud_gadget::Event::GetDisplayModesRequest(req) => {
+                        req.send_modes(&[gud_gadget::DisplayMode {
+                            clock: WIDTH * HEIGHT * 60 / 1000,
+                            hdisplay: WIDTH as u16,
+                            htotal: WIDTH as u16,
+                            hsync_end: WIDTH as u16,
+                            hsync_start: WIDTH as u16,
+                            vtotal: HEIGHT as u16,
+                            vdisplay: HEIGHT as u16,
+                            vsync_end: HEIGHT as u16,
+                            vsync_start: HEIGHT as u16,
+                            flags: 0,
+                        }]).expect("failed to send modes");
+                    },
+                    gud_gadget::Event::Buffer(info) => {
+                        println!("yee");
+                        gud_data.recv_buffer(info, pixels.lock().unwrap().frame_mut(), (WIDTH * 4) as usize).expect("recv_buffer failed");
+                    }
+                }
+            }
+        }
+    });
+
     event_loop.run(move |event, elwt| {
         match event {
             Event::AboutToWait => {
-                world.update();
                 window.request_redraw();
             }
             Event::WindowEvent { event: window_event, .. } => {
                 match window_event {
                     WindowEvent::CloseRequested => {
+                        running2.store(false, Ordering::SeqCst);
                         elwt.exit();
                     }
                     WindowEvent::RedrawRequested => {
-                        // Draw the current frame
-                        world.draw(pixels.frame_mut());
-                        if let Err(err) = pixels.render() {
+                        if let Err(err) = pixels2.lock().unwrap().render() {
                             log_error("pixels.render", err);
                             elwt.exit();
                         }
                     }
                     WindowEvent::Resized(size) => {
-                        if let Err(err) = pixels.resize_surface(size.width, size.height) {
+                        if let Err(err) = pixels2.lock().unwrap().resize_surface(size.width, size.height) {
                             log_error("pixels.resize_surface", err);
                             elwt.exit();
                         }
                     }
+                    WindowEvent::ModifiersChanged(mods) => {
+                        // println!("modz: {:?}", mods);
+                    }
                     WindowEvent::KeyboardInput { event: key_event, .. } => {
                         let mut kbchanged = false;
                         if let Some(code) = if key_event.repeat { None } else { keyboard_usage(key_event.clone()) } {
-                            println!("reee: {:?}", key_event);
                             for report_code in &mut kbreport.keycodes {
                                 if *report_code == code {
                                     if key_event.state == ElementState::Released {
@@ -202,15 +236,20 @@ fn main() {
                                     break;
                                 }
                             }
+                        } else {
+                            println!("unhandled: {:?}", key_event);
                         }
                         if kbchanged {
-                            println!("sending kb report: {:?}", kbreport);
                             ssmarshal::serialize(&mut kbbuf, &kbreport).expect("report serialization");
                             kb.write_all(&kbbuf).expect("keyboard report write failed");
                         }
                     }
+                    WindowEvent::Touch(touch) => {
+                        println!("touch event: {:?}", touch);
+                    }
                     _ => {}
                 }
+
             }
             _ => {}
         }
@@ -221,54 +260,6 @@ fn log_error<E: std::error::Error + 'static>(method_name: &str, err: E) {
     error!("{method_name}() failed: {err}");
     for source in err.sources().skip(1) {
         error!("  Caused by: {source}");
-    }
-}
-
-impl World {
-    /// Create a new `World` instance that can draw a moving box.
-    fn new() -> Self {
-        Self {
-            box_x: 24,
-            box_y: 16,
-            velocity_x: 1,
-            velocity_y: 1,
-        }
-    }
-
-    /// Update the `World` internal state; bounce the box around the screen.
-    fn update(&mut self) {
-        if self.box_x <= 0 || self.box_x + BOX_SIZE > WIDTH as i16 {
-            self.velocity_x *= -1;
-        }
-        if self.box_y <= 0 || self.box_y + BOX_SIZE > HEIGHT as i16 {
-            self.velocity_y *= -1;
-        }
-
-        self.box_x += self.velocity_x;
-        self.box_y += self.velocity_y;
-    }
-
-    /// Draw the `World` state to the frame buffer.
-    ///
-    /// Assumes the default texture format: `wgpu::TextureFormat::Rgba8UnormSrgb`
-    fn draw(&self, frame: &mut [u8]) {
-        for (i, pixel) in frame.chunks_exact_mut(4).enumerate() {
-            let x = (i % WIDTH as usize) as i16;
-            let y = (i / WIDTH as usize) as i16;
-
-            let inside_the_box = x >= self.box_x
-                && x < self.box_x + BOX_SIZE
-                && y >= self.box_y
-                && y < self.box_y + BOX_SIZE;
-
-            let rgba = if inside_the_box {
-                [0x5e, 0x48, 0xe8, 0xff]
-            } else {
-                [0x48, 0xb2, 0xe8, 0xff]
-            };
-
-            pixel.copy_from_slice(&rgba);
-        }
     }
 }
 

@@ -589,7 +589,6 @@ dependencies = [
 [[package]]
 name = "gud-gadget"
 version = "0.1.0"
-source = "git+https://github.com/samcday/gud-gadget.git#06dde5ab3682a0350e79b4a63fb44302f6eccb16"
 dependencies = [
  "anyhow",
  "bytes",
@@ -598,7 +597,7 @@ dependencies = [
  "ssmarshal",
  "thiserror",
  "tracing",
- "usb-gadget 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "usb-gadget",
 ]
 
 [[package]]
@@ -1625,24 +1624,6 @@ checksum = "f962df74c8c05a667b5ee8bcf162993134c104e96440b663c8daa176dc772d8c"
 [[package]]
 name = "usb-gadget"
 version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "48fe8a35c61dbcdf94cb81f9740fd7cafac9469015bcc4595f1cc5aaa08b5b5f"
-dependencies = [
- "bitflags 2.4.2",
- "byteorder",
- "bytes",
- "libc",
- "log",
- "macaddr",
- "nix",
- "proc-mounts",
- "strum",
- "uuid",
-]
-
-[[package]]
-name = "usb-gadget"
-version = "0.6.0"
 source = "git+https://github.com/surban/usb-gadget.git?rev=897c511#897c511a58357ac011409f75969b5b37a4792a79"
 dependencies = [
  "bitflags 2.4.2",
@@ -1668,7 +1649,7 @@ dependencies = [
  "pixels",
  "serde",
  "ssmarshal",
- "usb-gadget 0.6.0 (git+https://github.com/surban/usb-gadget.git?rev=897c511)",
+ "usb-gadget",
  "usbd-hid-macros",
  "winit",
 ]
