@@ -1,3 +1,6 @@
+use std::fs::File;
+use std::io::Write;
+
 use crate::hid;
 use winit::event::{ElementState, KeyEvent, Modifiers};
 use winit::keyboard::{Key, NamedKey};
@@ -5,10 +8,11 @@ use winit::keyboard::{Key, NamedKey};
 pub struct Keyboard {
     report: hid::KeyboardReport,
     pub report_buf: Vec<u8>,
+    fifo: File,
 }
 
 impl Keyboard {
-    pub fn new() -> Self {
+    pub fn new(fifo: File) -> Self {
         Self {
             report_buf: vec![0; 8],
             report: hid::KeyboardReport {
@@ -17,6 +21,7 @@ impl Keyboard {
                 leds: 0,
                 keycodes: [0, 0, 0, 0, 0, 0],
             },
+            fifo,
         }
     }
 
@@ -44,7 +49,9 @@ impl Keyboard {
         if kbchanged {
             ssmarshal::serialize(self.report_buf.as_mut_slice(), &self.report)
                 .expect("report serialization");
-            // kb.write_all(&kbbuf).expect("keyboard report write failed");
+            self.fifo
+                .write_all(&self.report_buf)
+                .expect("keyboard report write failed");
         }
     }
 

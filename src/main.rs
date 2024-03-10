@@ -44,7 +44,8 @@ pub enum AppEvent {
 }
 
 fn run() {
-    let _ffs_dir = tempdir_in(std::env::var("XDG_RUNTIME_DIR").unwrap());
+    let gadget_dir = tempdir_in(std::env::var("XDG_RUNTIME_DIR").unwrap()).unwrap();
+    let gadget = gadget::spawn(gadget_dir.path()).unwrap();
 
     let event_loop = EventLoopBuilder::<AppEvent>::with_user_event()
         .build()
@@ -60,8 +61,8 @@ fn run() {
 
     let mut display =
         display::Display::new("TODO".to_string(), event_loop.create_proxy(), &window).unwrap();
-    let mut kb = keyboard::Keyboard::new();
-    let mut mouse = mouse::Mouse::new();
+    let mut kb = keyboard::Keyboard::new(gadget.kb_fifo().unwrap());
+    let mut mouse = mouse::Mouse::new(gadget.mouse_fifo().unwrap());
 
     event_loop
         .run(move |event, elwt| match event {

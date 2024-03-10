@@ -1016,6 +1016,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "nix"
+version = "0.28.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ab2156c4fce2f8df6c499cc1c763e4394b7482525bf2a9701c9d79d215f519e4"
+dependencies = [
+ "bitflags 2.4.2",
+ "cfg-if",
+ "cfg_aliases",
+ "libc",
+]
+
+[[package]]
 name = "nu-ansi-term"
 version = "0.46.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1803,7 +1815,7 @@ dependencies = [
  "libc",
  "log",
  "macaddr",
- "nix",
+ "nix 0.27.1",
  "proc-mounts",
  "strum",
  "uuid",
@@ -1816,6 +1828,7 @@ dependencies = [
  "anyhow",
  "clap",
  "gud-gadget",
+ "nix 0.28.0",
  "pixels",
  "serde",
  "ssmarshal",
