@@ -1,6 +1,6 @@
+use crate::hid;
 use winit::dpi::PhysicalPosition;
 use winit::event::{Touch, TouchPhase};
-use crate::hid;
 
 pub struct Mouse {
     report: hid::MouseReport,
@@ -11,7 +11,7 @@ pub struct Mouse {
 impl Mouse {
     pub fn new() -> Self {
         Self {
-            report: hid::MouseReport{
+            report: hid::MouseReport {
                 x: 0,
                 y: 0,
                 buttons: 0,
@@ -42,7 +42,8 @@ impl Mouse {
                     if id == touch.id {
                         self.report.x = (touch.location.x - old_pos.x) as i8;
                         self.report.y = (touch.location.y - old_pos.y) as i8;
-                        ssmarshal::serialize(self.report_buf.as_mut_slice(), &self.report).expect("report serialization");
+                        ssmarshal::serialize(self.report_buf.as_mut_slice(), &self.report)
+                            .expect("report serialization");
                         // mouse.write_all(&mousebuf).expect("mouse report write failed");
                         self.active_touch = Some((id, touch.location));
                     }

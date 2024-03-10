@@ -1,5 +1,5 @@
-use usbd_hid_macros::gen_hid_descriptor;
 use serde::ser::{Serialize, SerializeTuple, Serializer};
+use usbd_hid_macros::gen_hid_descriptor;
 
 pub trait SerializedDescriptor {
     fn desc() -> &'static [u8];

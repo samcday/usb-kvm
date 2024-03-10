@@ -1,34 +1,27 @@
 #![deny(clippy::all)]
 #![forbid(unsafe_code)]
 
+mod display;
 mod gadget;
+mod hid;
 mod keyboard;
 mod mouse;
-mod display;
-mod hid;
 
-use std::fs::File;
-use std::io::Write;
-use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::thread::sleep;
-use std::time::Duration;
-use pixels::{Error, Pixels, SurfaceTexture};
-use serde::ser::{Serialize, SerializeTuple, Serializer};
-use usb_gadget::{Class, Config, default_udc, Gadget, Id, remove_all, Strings};
-use usb_gadget::function::hid::Hid;
+use std::sync::{Arc, Mutex};
+
+use pixels::{Pixels, SurfaceTexture};
+
 use winit::dpi::LogicalSize;
-use winit::event::{ElementState, Event, KeyEvent, StartCause, TouchPhase, WindowEvent};
+use winit::event::{Event, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop};
-use winit::keyboard::{Key, KeyCode, NamedKey, PhysicalKey};
-use winit::raw_window_handle::HasDisplayHandle;
-use winit::window::WindowBuilder;
+
 use clap::Parser;
 use tracing::error;
-use tracing_subscriber::{EnvFilter, fmt};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::{fmt, EnvFilter};
+use winit::window::WindowBuilder;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -67,7 +60,7 @@ fn run() {
             .unwrap()
     };
 
-    let mut pixels = {
+    let pixels = {
         let window_size = window.inner_size();
         let surface_texture = SurfaceTexture::new(window_size.width, window_size.height, &window);
         Pixels::new(WIDTH, HEIGHT, surface_texture).unwrap()
@@ -113,44 +106,54 @@ fn run() {
     let mut kb = keyboard::Keyboard::new();
     let mut mouse = mouse::Mouse::new();
 
-    event_loop.run(move |event, elwt| {
-        match event {
-            Event::AboutToWait => {
-                // TODO: nuke once user events are setup and GUD thread can notify on new frame
-                window.request_redraw();
-            }
-            Event::WindowEvent { event: window_event, .. } => {
-                match window_event {
-                    WindowEvent::CloseRequested => {
-                        running2.store(false, Ordering::SeqCst);
-                        elwt.exit();
-                    }
-                    WindowEvent::RedrawRequested => {
-                        if let Err(err) = pixels2.lock().unwrap().render() {
-                            error!("pixels.render {}", err);
-                            elwt.exit();
-                        }
-                    }
-                    WindowEvent::Resized(size) => {
-                        if let Err(err) = pixels2.lock().unwrap().resize_surface(size.width, size.height) {
-                            error!("pixels.resize_surface {}", err);
-                            elwt.exit();
-                        }
-                    }
-                    WindowEvent::ModifiersChanged(mods) => {
-                        // println!("modz: {:?}", mods);
-                    }
-                    WindowEvent::KeyboardInput { event: key_event, .. } => {
-                        kb.handle_input(key_event);
-                    }
-                    WindowEvent::Touch(touch) => {
-                        mouse.handle_touch(touch);
-                    }
-                    _ => {}
+    event_loop
+        .run(move |event, elwt| {
+            match event {
+                Event::AboutToWait => {
+                    // TODO: nuke once user events are setup and GUD thread can notify on new frame
+                    window.request_redraw();
                 }
-
+                Event::WindowEvent {
+                    event: window_event,
+                    ..
+                } => {
+                    match window_event {
+                        WindowEvent::CloseRequested => {
+                            running2.store(false, Ordering::SeqCst);
+                            elwt.exit();
+                        }
+                        WindowEvent::RedrawRequested => {
+                            if let Err(err) = pixels2.lock().unwrap().render() {
+                                error!("pixels.render {}", err);
+                                elwt.exit();
+                            }
+                        }
+                        WindowEvent::Resized(size) => {
+                            if let Err(err) = pixels2
+                                .lock()
+                                .unwrap()
+                                .resize_surface(size.width, size.height)
+                            {
+                                error!("pixels.resize_surface {}", err);
+                                elwt.exit();
+                            }
+                        }
+                        WindowEvent::ModifiersChanged(_mods) => {
+                            // println!("modz: {:?}", mods);
+                        }
+                        WindowEvent::KeyboardInput {
+                            event: key_event, ..
+                        } => {
+                            kb.handle_input(key_event);
+                        }
+                        WindowEvent::Touch(touch) => {
+                            mouse.handle_touch(touch);
+                        }
+                        _ => {}
+                    }
+                }
+                _ => {}
             }
-            _ => {}
-        }
-    }).unwrap();
+        })
+        .unwrap();
 }
