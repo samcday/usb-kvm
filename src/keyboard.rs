@@ -1,5 +1,5 @@
 use crate::hid;
-use winit::event::{ElementState, KeyEvent};
+use winit::event::{ElementState, KeyEvent, Modifiers};
 use winit::keyboard::{Key, NamedKey};
 
 pub struct Keyboard {
@@ -20,7 +20,7 @@ impl Keyboard {
         }
     }
 
-    pub fn handle_input(&mut self, key_event: KeyEvent) {
+    pub fn handle_key(&mut self, key_event: KeyEvent) {
         let mut kbchanged = false;
         if let Some(code) = if key_event.repeat {
             None
@@ -47,6 +47,8 @@ impl Keyboard {
             // kb.write_all(&kbbuf).expect("keyboard report write failed");
         }
     }
+
+    pub fn handle_modifiers(&mut self, _mods_event: Modifiers) {}
 }
 
 fn keyboard_usage(key_event: KeyEvent) -> Option<u8> {

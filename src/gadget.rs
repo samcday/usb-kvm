@@ -3,7 +3,7 @@ use crate::hid::SerializedDescriptor;
 use std::fs::File;
 use std::path::PathBuf;
 use usb_gadget::function::hid::Hid;
-use usb_gadget::{default_udc, remove_all, Class, Config, Gadget, Id, Strings};
+use usb_gadget::{default_udc, remove_all, Class, Config, Gadget, Strings};
 
 pub fn run(_dir: String) {
     let udc = default_udc().expect("no UDC found");
@@ -21,12 +21,10 @@ pub fn run(_dir: String) {
     builder.report_desc = hid::MouseReport::desc().to_vec();
     let (mousehid, mousehandle) = builder.build();
 
-    // let (mut gud, mut gud_data, gud_handle) = gud_gadget::Function::new();
-
     let _reg = Gadget::new(
-        Class::new(0, 0, 0),
-        Id::new(0x1d50, 0x614d),
-        Strings::new("usb-kvm", "usb-kvm", "666"),
+        Class::interface_specific(),
+        gud_gadget::OPENMOKO_GUD_ID,
+        Strings::new("usb-kvm", "usb-kvm", ""),
     )
     .with_config(
         Config::new("usb-kvm")
