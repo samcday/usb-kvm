@@ -6,17 +6,17 @@ edition = "2021"
 publish = false
 
 [features]
-optimize = ["log/release_max_level_warn"]
+optimize = []
 default = ["optimize"]
 
 [dependencies]
-env_logger = "0.10"
-error-iter = "0.4"
-log = "0.4"
 pixels = "0.13.0"
 serde = "1.0.197"
 ssmarshal = "1.0.0"
 usb-gadget = { git = "https://github.com/surban/usb-gadget.git", rev = "897c511" }
 usbd-hid-macros = "0.6.0"
 winit = { version = "0.29.14", features = ["rwh_05"] }
-gud-gadget = { path = "../gud-gadget/gud-gadget" }
+gud-gadget = { path = "../gud-gadget/gadget" }
+clap = { version = "4.5.2", features = ["derive"] }
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+tracing = "0.1.40"
