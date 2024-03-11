@@ -1,127 +1,198 @@
-use crate::hid;
+use crate::{AppEvent, hid};
 use crate::hid::SerializedDescriptor;
 use std::fs::File;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
-use std::process::Child;
-use tracing::info;
+use std::process::{Child, exit};
+use std::sync::{Arc, Mutex};
+use anyhow::Context;
+use ipc_channel::ipc;
+use ipc_channel::ipc::{IpcError, IpcOneShotServer, IpcReceiver, IpcSender};
+use serde::{Deserialize, Serialize};
+use tracing::{debug, error, info};
 use usb_gadget::function::hid::Hid;
-use usb_gadget::{default_udc, remove_all, Class, Config, Gadget, Strings};
+use usb_gadget::{default_udc, remove_all, Class, Config, Gadget, Strings, RegGadget};
+use usb_gadget::function::custom::Custom;
+use winit::event_loop::EventLoopProxy;
 
-pub fn run(dir: String) {
-    let udc = default_udc().expect("no UDC found");
-    remove_all().expect("failed to clear gadgets");
+pub fn run(channel_name: String) -> anyhow::Result<()> {
+    let uid: u32 = std::env::var("PKEXEC_UID")
+        .context("failed to get PKEXEC_UID")?
+        .parse()
+        .context("failed to parse PKEXEC_UID")?;
+    debug!("unprivilged uid is {:?}", uid);
+
+    info!("connecting to channel {}", channel_name);
+    let (remote_send, local_receive) = ipc::channel()?;
+    let (local_send, remote_receive) = ipc::channel()?;
+    IpcSender::connect(channel_name)?.send(IpcHandshake {
+        sender: remote_send,
+        receiver: remote_receive,
+    })?;
+
+    let udc = default_udc().context("failed to get default UDC")?;
+    remove_all().context("failed to clear gadgets")?;
 
     let mut builder = Hid::builder();
     builder.protocol = 1;
     builder.report_len = 8;
     builder.report_desc = hid::KeyboardReport::desc().to_vec();
-    let (kbhid, kbhandle) = builder.build();
+    let (kb_hid, kb_handle) = builder.build();
 
     let mut builder = Hid::builder();
     builder.protocol = 2;
     builder.report_len = 5;
     builder.report_desc = hid::MouseReport::desc().to_vec();
-    let (mousehid, mousehandle) = builder.build();
+    let (mouse_hid, mouse_handle) = builder.build();
 
-    let _reg = Gadget::new(
+    let mut builder = Custom::builder();
+    builder.ffs_no_init = true;
+    builder.ffs_uid = Some(uid);
+    let (mut gud, gud_handle) = builder.build();
+
+    let reg = Gadget::new(
         Class::interface_specific(),
         gud_gadget::OPENMOKO_GUD_ID,
-        Strings::new("usb-kvm", "usb-kvm", ""),
+        Strings::new("usb-kvm", "usb-kvm", "123"),
     )
-    .with_config(
-        Config::new("usb-kvm")
-            .with_function(kbhandle)
-            .with_function(mousehandle), // .with_function(gud_handle)
-    )
-    .bind(&udc)
-    .expect("gadget binding failed");
+        .with_config(
+            Config::new("usb-kvm")
+                .with_function(kb_handle)
+                .with_function(mouse_handle)
+                .with_function(gud_handle)
+        )
+        .register()
+        .context("failed to register gadget")?;
 
-    let (kb_major, kb_minor) = kbhid.device().unwrap();
-    let (mouse_major, mouse_minor) = mousehid.device().unwrap();
+    local_send.send(GadgetEvent::Registered(gud.ffs_dir()?.to_str().unwrap().to_string()))?;
 
-    std::thread::sleep(std::time::Duration::from_millis(1000));
+    let reg = Arc::new(Mutex::new(Some(reg)));
 
-    std::thread::scope(|s| {
-        s.spawn(|| {
-            let mut mouse_dev = {
-                File::options()
-                    .append(true)
-                    .open(PathBuf::from(format!(
-                        "/dev/char/{}:{}",
-                        mouse_major, mouse_minor
-                    )))
-                    .expect("failed to open mouse dev")
-            };
+    {
+        let reg = reg.clone();
+        ctrlc::set_handler(move || {
+            info!("received interrupt/kill signal, cleaning up");
+            cleanup(reg.clone());
+        }).unwrap();
+    }
 
-            let mut path = PathBuf::from(&dir);
-            path.push("mouse.pipe");
-            let mut fifo = File::open(path).unwrap();
+    // Only command we should receive at this point is to bind the UDC.
+    match local_receive.recv()? {
+        IpcCommand::Bind => {}
+        v => panic!("unexpected IPC command {:?}", v)
+    }
 
-            std::io::copy(&mut fifo, &mut mouse_dev).unwrap();
-        });
-        s.spawn(|| {
-            let mut kb_dev = {
-                File::options()
-                    .append(true)
-                    .open(PathBuf::from(format!(
-                        "/dev/char/{}:{}",
-                        kb_major, kb_minor
-                    )))
-                    .expect("failed to open kb dev")
-            };
+    reg.lock().unwrap().as_mut().unwrap().bind(Some(&udc)).context("failed to bind gadget")?;
 
-            let mut path = PathBuf::from(&dir);
-            path.push("kb.pipe");
-            let mut fifo = File::open(path).unwrap();
+    local_send.send(GadgetEvent::Bound)?;
 
-            std::io::copy(&mut fifo, &mut kb_dev).unwrap();
-        });
-    });
+    let kb_dev = {
+        let (major, minor) = kb_hid.device().unwrap();
+        PathBuf::from(format!(
+            "/dev/char/{}:{}",
+            major, minor
+        ))
+    };
+    let mouse_dev = {
+        let (major, minor) = mouse_hid.device().unwrap();
+        PathBuf::from(format!(
+            "/dev/char/{}:{}",
+            major, minor
+        ))
+    };
+
+    loop {
+        match local_receive.recv()? {
+            IpcCommand::MouseReport(report) => std::fs::write(&mouse_dev, report)?,
+            IpcCommand::KeyboardReport(report) => std::fs::write(&kb_dev, report)?,
+            v => panic!("unexpected IPC command {:?}", v)
+        }
+    }
+
+    //
+    //
+    // //
+    cleanup(reg.clone());
+    Ok(())
+}
+
+fn cleanup(reg: Arc<Mutex<Option<RegGadget>>>) {
+    if let Some(reg) = reg.lock().unwrap().take() {
+        reg.remove().unwrap();
+    }
+    exit(0);
 }
 
 pub struct GadgetProcess {
     process: Child,
-    kb_fifo: PathBuf,
-    mouse_fifo: PathBuf,
+    sender: IpcSender<IpcCommand>,
 }
 
-impl GadgetProcess {
-    pub fn kb_fifo(&self) -> anyhow::Result<File> {
-        Ok(File::options().write(true).open(&self.kb_fifo)?)
-    }
-
-    pub fn mouse_fifo(&self) -> anyhow::Result<File> {
-        Ok(File::options().write(true).open(&self.mouse_fifo)?)
-    }
+#[derive(Debug, Serialize, Deserialize)]
+pub enum IpcCommand {
+    Bind,
+    KeyboardReport(Vec<u8>),
+    MouseReport([u8; 5]),
 }
 
-pub fn spawn(dir: &Path) -> anyhow::Result<GadgetProcess> {
-    info!("spawning gadget process in dir {}", dir.display());
+#[derive(Debug, Serialize, Deserialize)]
+pub enum GadgetEvent {
+    Disconnected,
+    Registered(String),
+    Bound,
+}
 
-    let kb_fifo = prepare_fifo(dir, "kb.pipe")?;
-    let mouse_fifo = prepare_fifo(dir, "mouse.pipe")?;
+#[derive(Debug, Serialize, Deserialize)]
+struct IpcHandshake {
+    pub receiver: IpcReceiver<GadgetEvent>,
+    pub sender: IpcSender<IpcCommand>,
+}
+
+/// Start the privileged gadget process, setup IPC channel.
+/// Events from the gadget process will be pumped into the main winit event loop.
+pub fn spawn(events: EventLoopProxy<AppEvent>) -> anyhow::Result<GadgetProcess> {
+    let (ipc, channel_name) = IpcOneShotServer::<IpcHandshake>::new()?;
+    let arg0 = std::env::args().next().unwrap();
+
+    info!("spawning gadget process '{}' on ipc channel {}", arg0, channel_name);
 
     let process = std::process::Command::new("pkexec")
-        .arg(std::env::args().next().unwrap())
+        .arg(&arg0)
         .arg("--gadget")
-        .arg(dir)
-        .spawn()?;
+        .arg(channel_name)
+        .spawn().context(format!("failed to start process '{}'", arg0))?;
+
+    loop {
+        process.
+    }
+
+    let (_, IpcHandshake { receiver, sender }) = ipc.accept().context("ipc handshake")?;
+
+    std::thread::spawn(move || {
+        loop {
+            match receiver.recv() {
+                Ok(event) => if let Err(err) = events.send_event(AppEvent::Gadget(event)) {
+                    error!("failed to propagate gadget event: {}", err)
+                }
+                Err(err) => match err {
+                    IpcError::Disconnected => {
+                        events.send_event(AppEvent::Gadget(GadgetEvent::Disconnected)).unwrap();
+                        return;
+                    }
+                    _ => error!("ipc receive failed: {}", err)
+                }
+            }
+        }
+    });
 
     Ok(GadgetProcess {
         process,
-        kb_fifo,
-        mouse_fifo,
+        sender,
     })
 }
 
-fn prepare_fifo<T: ToString>(dir: &Path, name: T) -> anyhow::Result<PathBuf> {
-    let mut fifo_path = dir.to_path_buf();
-    fifo_path.push(name.to_string());
-    match std::fs::remove_file(&fifo_path) {
-        Err(err) if err.kind() == ErrorKind::NotFound => Ok(()),
-        v => v,
-    }?;
-    nix::unistd::mkfifo(&fifo_path, nix::sys::stat::Mode::S_IRWXU)?;
-    Ok(fifo_path)
+impl GadgetProcess {
+    pub fn send(&self, msg: IpcCommand) -> anyhow::Result<()> {
+        Ok(self.sender.send(msg).context("failed to send IPC message to gadget process")?)
+    }
 }
